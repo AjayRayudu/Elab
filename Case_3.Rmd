@@ -1,0 +1,501 @@
+---
+title: "Case 3"
+author: '1'
+date: "2023-05-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(quantmod)
+library(psych)
+library(quadprog)
+library(cat)
+library(tidyverse)
+library(tidyr)
+library(DescTools)
+library(zoo) 
+library(dlookr)
+library(flextable)
+library(robustHD)
+library(caret)
+library(C50)
+library(rpart)
+library(xts)
+```
+
+```{r}
+price <- getSymbols("KO", from="1962-01-01",auto.assign = F)
+head(price)
+```
+
+```{r}
+write.zoo(price, file="KO.csv", sep=",")
+price = read.zoo("KO.csv", sep=",", format="%Y-%m-%d", header=TRUE)
+```
+
+```{r}
+price = as.xts(price)
+plot(Ad(price))
+```
+
+```{r}
+mu<-10000*read.csv("C:/Users/ASUS/Downloads/MV_mu.csv")
+mu
+
+```
+
+```{r}
+s<-10000*read.csv("C:/Users/ASUS/Downloads/MV_var.csv")
+s<-as.matrix(s)
+```
+
+```{r}
+N=length(mu)
+iota=rep(1,N)
+w0= 1
+mu0= 12
+Imat=diag(N)
+nulvec=rep(0,N)
+A=as.matrix(cbind(iota,Imat))
+b=as.matrix(c(w0,nulvec))
+noshort = solve.QP(as.matrix(s), nulvec, Amat=A, bvec=b, meq=2)
+```
+
+```{r}
+w = noshort$solution
+```
+
+```{r}
+portfolio_vol=sqrt(t(w)%*%s%*%w)
+portfolio_ret<-w%*%t(mu)
+
+```
+
+```{r}
+mu_0<-seq(5,20,by=0.1)
+pt_ret<-rep(NA,length(mu_0))
+pt_vol<-rep(NA,length(mu_0))
+for(i in 1:(length(mu_0))){
+  b_temp=as.matrix(c(w0,mu_0[i],nulvec))
+  temp<-solve.QP(s,nulvec,Amat=A, bvec=b_temp, meq=2)
+  w_pt<-temp$solution
+  pt_ret[i]<-w_pt%*%t(mu)
+  pt_vol[i]<-sqrt(t(w_pt)%*%s%*%w_pt)
+}
+plot(pt_vol,pt_ret,type="l")
+```
+
+```{r}
+tickers<-read.csv("C:/Users/ASUS/Downloads/teamticker.csv")
+team<-"2B"
+ticker_pick<-paste0("X",team)
+tickers_used<-c(tickers[ticker_pick])
+
+datafile<-paste0("returns_",ticker_pick,".csv")
+
+if (!file.exists(datafile)){
+  getSymbols(tickers_used[[1]], from="2002-12-31")
+  returns_stocks<-(do.call(merge,lapply(tickers_used[[1]],function(x) Delt(Ad(get(x))))))
+  colnames(returns_stocks)<-tickers_used[[1]]
+  returns_stocks<-100*returns_stocks["2003/"]
+  write.csv(as.matrix(returns_stocks),file=paste0("returns_",ticker_pick,".csv"))
+} else{
+  returns_stocks=read.csv(datafile,header=TRUE)
+}
+
+returns_stocks<-returns_stocks[,colSums(is.na(returns_stocks))==0]
+```
+
+```{r}
+missing_values<-sum(is.na(returns_stocks))
+if (missing_values > 0) {
+  print("Missing values found in the returns data.")
+  # Further actions to handle missing values, such as imputation or removal of series, can be implemented here
+} else {
+  print("No missing values found in the returns data.")
+}
+```
+
+
+```{r}
+n<-nrow(returns_stocks)
+even<-2*seq(n/2)
+odd<-even-1
+
+returns_stocks_even<-returns_stocks[even,-1]
+returns_stocks_odd<-returns_stocks[odd,-1]
+
+average_even<-252*colMeans(returns_stocks_even,na.rm = FALSE)
+average_odd<-252*colMeans(returns_stocks_odd,na.rm = FALSE)
+
+sd_even<-sqrt(252)*apply(average_even,2)
+sd_odd<-sqrt(252)*apply(average_odd)
+
+c_even<-cov(average_even,sd_even)
+c_odd<-cov(average_odd,sd_odd)
+
+```
+
+```{r}
+returns_stocks_odd <- returns_stocks[seq(1, nrow(returns_stocks), 2), ]
+returns_stocks_even <- returns_stocks[seq(2, nrow(returns_stocks), 2), ]
+
+# Check the dimensions of the odd and even returns
+cat("Odd returns dimensions:", dim(returns_stocks_odd), "\n")
+cat("Even returns dimensions:", dim(returns_stocks_even), "\n")
+```
+
+```{r}
+o_means <- apply(returns_stocks_odd, 2, mean)
+o_vars <- apply(returns_stocks_odd, 2, var)
+e_means <- apply(returns_stocks_even, 2, mean)
+e_vars <- apply(returns_stocks_even, 2, var)
+
+# Create a data frame with means and variances
+data <- data.frame(o_means, e_means, o_vars, e_vars)
+data$Group <- rep(c("odd","even"), each = ncol(data) / 2)
+
+# Combine summaries and create a grouping variable
+data <- bind_rows(
+  mutate(odd_summary, Group = "Odd"),
+  mutate(even_summary, Group = "Even")
+)
+
+# Create scatterplot for means
+means_plot <- ggplot(data, aes(x = mean, y = lag(mean), color = Group)) +
+  geom_point(size = 4) +
+  labs(x = "Mean (Fold 1)", y = "Mean (Fold 2)", title = "Comparison of Means") +
+  theme_minimal() +
+  theme(legend.title = element_blank(), legend.position = "bottom") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed")
+
+# Create scatterplot for variances
+vars_plot <- ggplot(data, aes(x = var, y = lag(var), color = Group)) +
+  geom_point(size = 4) +
+  labs(x = "Variance (Fold 1)", y = "Variance (Fold 2)", title = "Comparison of Variances") +
+  theme_minimal() +
+  theme(legend.title = element_blank(), legend.position = "bottom") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed")
+
+# Display the plots
+means_plot
+vars_plot
+
+```
+
+
+
+```{r}
+# Number of stocks
+N <- ncol(odd_returns)
+
+# Vector of ones
+iota <- rep(1, N)
+
+# Identity matrix of size N
+Imat <- diag(N)
+
+# Gamma value
+gamma <- 3
+
+# Convert to numeric values
+o_vars <- as.numeric(o_vars)
+e_vars <- as.numeric(e_vars)
+o_means <- as.numeric(o_means)
+e_means <- as.numeric(e_means)
+
+A <- cbind(iota, Imat)
+b <- c(1, rep(0, N))
+
+# Solve the model for odd subsample
+noshort_odd <- quadprog::solve.QP(Dmat = diag(N) * gamma, dvec = -o_means, Amat = A, bvec = b, meq = 1)
+w_odd <- noshort_odd$solution
+
+# Solve the model for even subsample
+noshort_even <- quadprog::solve.QP(Dmat = diag(N) * gamma, dvec = -e_means, Amat = A, bvec = b, meq = 1)
+w_even <- noshort_even$solution
+
+# In-sample
+portfolio_volatility_odd <- sqrt(t(w_odd) %*% o_vars %*% w_odd)
+portfolio_returns_odd <- w_odd %*% t(o_means)
+
+portfolio_volatility_even <- sqrt(t(w_even) %*% e_vars %*% w_even)
+portfolio_returns_even <- w_even %*% t(e_means)
+
+# Out-of-sample
+portfolio_volatility_odd_oos <- sqrt(t(w_odd) %*% e_vars %*% w_odd)
+portfolio_returns_odd_oos <- w_odd %*% t(e_means)
+
+portfolio_volatility_even_oos <- sqrt(t(w_even) %*% o_vars %*% w_even)
+portfolio_returns_even_oos <- w_even %*% t(o_means)
+
+# In-sample portfolio performance
+cat("In-Sample Portfolio Performance (Odd):\n")
+cat("Volatility:", portfolio_volatility_odd, "\n")
+cat("Returns:", head(portfolio_returns_odd, 5), "\n\n")
+
+cat("In-Sample Portfolio Performance (Even):\n")
+cat("Volatility:", portfolio_volatility_even, "\n")
+cat("Returns:", head(portfolio_returns_even, 5), "\n\n")
+
+# Out-of-sample portfolio performance
+cat("Out-of-Sample Portfolio Performance (Odd):\n")
+cat("Volatility:", portfolio_volatility_odd_oos, "\n")
+cat("Returns:", head(portfolio_returns_odd_oos, 5), "\n\n")
+
+cat("Out-of-Sample Portfolio Performance (Even):\n")
+cat("Volatility:", portfolio_volatility_even_oos, "\n")
+cat("Returns:", head(portfolio_returns_even_oos, 5), "\n\n")
+
+```
+
+```{r}
+# Calculate expected return and standard deviation for training samples
+return_train <- c(
+  mean(returns_stocks_odd %*% w_odd),
+  mean(returns_stocks_even %*% w_even)
+)
+
+stddev_train <- c(
+  sqrt(t(w_odd) %*% (o_vars * w_odd)),
+  sqrt(t(w_even) %*% (e_vars * w_even))
+)
+
+# Calculate expected return and standard deviation for validation samples
+return_validation <- c(
+  mean(returns_stocks_even %*% w_even),
+  mean(returns_stocks_odd %*% w_odd)
+)
+
+stddev_validation <- c(
+  sqrt(t(w_even) %*% (e_vars * w_even)),
+  sqrt(t(w_odd) %*% (o_vars * w_odd))
+)
+
+# Calculate Sharpe ratio for training and validation samples
+sharpe_train <- return_train / stddev_train
+sharpe_validation <- return_validation / stddev_validation
+
+```
+
+```{r}
+# Create a list of performance tables per variable
+performance_tables <- list()
+performance_tables$Return <- data.frame(
+  Variable = c("Return"),
+  Portfolio = c("ODD", "EVEN"),
+  Train = return_train,
+  Validation = return_validation
+)
+
+performance_tables$StdDev <- data.frame(
+  Variable = c("Standard Deviation"),
+  Portfolio = c("ODD", "EVEN"),
+  Train = stddev_train,
+  Validation = stddev_validation
+)
+
+performance_tables$Sharpe <- data.frame(
+  Variable = c("Sharpe Ratio"),
+  Portfolio = c("ODD", "EVEN"),
+  Train = sharpe_train,
+  Validation = sharpe_validation
+)
+
+# Print individual performance tables
+cat("Performance Tables\n")
+print(performance_tables$Return)
+print(performance_tables$StdDev)
+print(performance_tables$Sharpe)
+
+```
+
+```{r}
+# Calculate the benchmark returns
+benchmark_returns <- returns_stocks$SPY
+
+# Combine odd returns and benchmark returns into a data frame
+odd_data <- as.data.frame(cbind(odd_returns, benchmark_returns))
+
+# Calculate the beta values for the odd sample
+beta_values_odd <- colnames(odd_returns) %>%
+  map_dbl(~ {
+    regression_result <- lm(paste0(.x, " ~ benchmark_returns"), data = odd_data)
+    coefficients(regression_result)[[2]]
+  })
+
+# Combine even returns and benchmark returns into a data frame
+even_data <- as.data.frame(cbind(even_returns, benchmark_returns))
+
+# Calculate the beta values for the even sample
+beta_values_even <- colnames(even_returns) %>%
+  map_dbl(~ {
+    regression_result <- lm(paste0(.x, " ~ benchmark_returns + 1"), data = even_data)
+    coefficients(regression_result)[[2]]
+  })
+
+# Combine beta values for odd and even samples into a data frame
+beta_odd_even_data <- tibble(
+  beta_values_odd = beta_values_odd,
+  beta_values_even = beta_values_even,
+  Sample = rep(c("Odd", "Even"), each = length(beta_values_odd) / 2)
+)
+
+# Plot scatterplot of beta values for odd and even samples with different colors
+beta_odd_even_plot <- ggplot(beta_odd_even_data, aes(x = beta_values_odd, y = beta_values_even, color = Sample)) +
+  geom_point(size = 4) +
+  labs(x = "Beta Values (Odd Sample)", y = "Beta Values (Even Sample)", title = "Beta Values (Odd Sample) vs Beta Values (Even Sample)") +
+  theme_minimal() +
+  scale_color_manual(values = c("lightblue", "darkred")) +
+  geom_abline(intercept = 0, slope = 1 or "lamda", linetype = "dashed")
+
+# Display the plot
+beta_odd_even_plot
+
+```
+
+```{r}
+# Define the risk-free rate and equity premium
+r_f <- 0.03  # Example value, replace with your desired risk-free rate
+lambda <- 0.05  # Example value, replace with your desired equity premium
+
+# Calculate the expected return for each stock in the odd and even samples
+expected_return_odd <- r_f + beta_values_odd * lambda
+expected_return_even <- r_f + beta_values_even * lambda
+
+# Create a data frame for SML
+sml_data <- data.frame(Beta = beta_values_all, Expected_Return_Odd = expected_return_odd, Expected_Return_Even = expected_return_even)
+
+# Plot the SML for odd and even samples
+sml_plot <- ggplot(sml_data, aes(x = Beta)) +
+  geom_point(aes(y = Expected_Return_Odd), color = "green", size = 4) +
+  geom_point(aes(y = Expected_Return_Even), color = "red", size = 4) +
+  labs(x = "Beta", y = "Expected Return", title = "Security Market Line (SML)") +
+  theme_minimal() +
+  geom_abline(intercept = r_f, slope = lambda, color = "blue", linetype = "dashed") +
+  scale_color_manual(values = c("green", "red"))
+
+# Add stock labels to the plot
+for (i in 1:length(colnames(returns_stocks))) {
+  sml_plot <- sml_plot + geom_text(
+    x = beta_values_all[i],
+    y = expected_return_odd[i],
+    label = colnames(returns_stocks)[i],
+    vjust = -1,
+    hjust = 0,
+    color = "black",
+    size = 3
+  )
+}
+
+# Display the SML plot
+sml_plot
+```
+
+```{r}
+# Calculate the expected return and standard deviation for the optimized portfolios in the training samples
+optimized_returns_train <- returns_stocks %*% optimized_weights
+expected_return_train <- colMeans(optimized_returns_train)
+standard_deviation_train <- apply(optimized_returns_train, 2, sd)
+
+# Display the results for the training samples
+training_results <- tibble(Expected_Return = expected_return_train, Standard_Deviation = standard_deviation_train)
+training_results
+
+# Apply the optimized weights to the returns of the validation sample
+optimized_returns_validation <- returns_validation %*% optimized_weights
+expected_return_validation <- colMeans(optimized_returns_validation)
+standard_deviation_validation <- apply(optimized_returns_validation, 2, sd)
+
+# Display the results for the validation sample
+validation_results <- tibble(Expected_Return = expected_return_validation, Standard_Deviation = standard_deviation_validation)
+validation_results
+
+```
+
+```{r}
+# Set the range of κ values to try
+k_values <- c(0, 0.25, 0.5, 0.75, 1)
+
+# Initialize vectors to store the validation results for each κ value
+validation_results <- vector("list", length(k_values))
+
+# Perform cross-validation for each κ value
+for (i in seq_along(k_values)) {
+  # Calculate the expected return using shrinkage estimation
+  shrunk_expected_return <- k_values[i] * expected_return_train + (1 - k_values[i]) * mi
+  
+  # Optimize portfolios with the shrunk expected return
+  optimized_weights <- optimize_portfolios(cov_matrix, shrunk_expected_return)
+  
+  # Apply the optimized weights to the returns of the validation sample
+  optimized_returns_validation <- returns_validation %*% optimized_weights
+  expected_return_validation <- colMeans(optimized_returns_validation)
+  standard_deviation_validation <- apply(optimized_returns_validation, 2, sd)
+  
+  # Store the validation results for the current κ value
+  validation_results[[i]] <- tibble(Expected_Return = expected_return_validation, Standard_Deviation = standard_deviation_validation)
+}
+
+# Display the validation results for each κ value
+for (i in seq_along(k_values)) {
+  cat("κ =", k_values[i], "\n")
+  print(validation_results[[i]])
+  cat("\n")
+}
+```
+
+```{r}
+# Set the range of κ values to try
+k_values <- seq(0, 1, by = 0.1)
+
+# Initialize a vector to store the average performance for each κ value
+average_performance <- vector("numeric", length(k_values))
+
+# Perform cross-validation for each κ value
+for (i in seq_along(k_values)) {
+  # Calculate the expected return using shrinkage estimation
+  shrunk_expected_return <- k_values[i] * expected_return_train + (1 - k_values[i]) * mi
+  
+  # Optimize portfolios with the shrunk expected return
+  optimized_weights <- optimize_portfolios(cov_matrix, shrunk_expected_return)
+  
+  # Apply the optimized weights to the returns of the validation sample
+  optimized_returns_validation <- returns_validation %*% optimized_weights
+  expected_return_validation <- colMeans(optimized_returns_validation)
+  standard_deviation_validation <- apply(optimized_returns_validation, 2, sd)
+  
+  # Calculate the average performance metric (e.g., Sharpe ratio) for the validation sample
+  performance_metric <- mean(expected_return_validation / standard_deviation_validation)
+  
+  # Store the average performance for the current κ value
+  average_performance[i] <- performance_metric
+}
+
+# Find the optimal κ value that maximizes the average performance
+optimal_k <- k_values[which.max(average_performance)]
+
+# Display the optimal κ value and the corresponding average performance
+cat("Optimal κ value:", optimal_k, "\n")
+cat("Average Performance:", max(average_performance), "\n")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

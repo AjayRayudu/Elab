@@ -1,0 +1,68 @@
+---
+title: "CASE 1"
+author: "Ajay"
+date: "2023-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+```{r}
+setwd("C:/Ajay/eLab")
+sicd=read.delim(file="sicdatas.txt")
+```
+
+```{r}
+missing(sicd)
+```
+
+```{r}
+library(tidyverse)
+library(dplyr)
+```
+
+```{r}
+sicdatassubset <- filter(sicd, sic == "5812")
+```
+
+```{r}
+# create a vector with sample data
+my_data <- sicd$sic
+
+# use the table() function to find the frequency
+my_frequency <- table(my_data)
+
+# print the frequency table
+my_frequency
+
+```
+
+```{r}
+asd<-read.csv("C:/Ajay/eLab/case2.csv")
+asd
+```
+```{r}
+combined_data<-left_join(sicdatassubset,asd, by=c("gvkey","conml"))
+combined_data
+```
+```{r}
+combined_data_1<-left_join(sicdatassubset,asd, by=c("gvkey"))
+combined_data_1
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

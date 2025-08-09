@@ -37,4 +37,4 @@ The goal was to simulate the work of a financial analyst by using valuation mult
 # Results
 - Models were trained on 95% of available firms and tested on 5% withheld data.
 - Best-performing models achieved significant accuracy improvements over the linear baseline in certain years.
-- Key insight: Larger, more profitable firms tended to have lower P/E ratios, while high-growth firms had higher ratios—consistent with corporate finance theory.
+- Key insight: Larger, more profitable firms tended to have lower P/E ratios, while high-growth firms had higher ratios consistent with corporate finance theory.
